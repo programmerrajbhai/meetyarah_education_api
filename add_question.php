@@ -1,28 +1,44 @@
 <?php
+session_start(); // Session Start for Flash Messages
 include 'includes/db_connect.php';
 include 'includes/header.php';
 
-// AJAX Handler (Same as before)
+// AJAX Handler (Data Fetching)
 if(isset($_GET['ajax_action'])) {
-    $id = $_GET['id'];
+    $id = intval($_GET['id']);
     $action = $_GET['ajax_action'];
+    
     if($action == 'get_groups') {
         $res = $conn->query("SELECT * FROM groups WHERE class_id=$id");
-        while($r = $res->fetch_assoc()) { echo "<option value='".$r['id']."'>".$r['name']."</option>"; }
+        if($res->num_rows > 0){
+            echo "<option value=''>Select Group</option>";
+            while($r = $res->fetch_assoc()) { echo "<option value='".$r['id']."'>".$r['name']."</option>"; }
+        } else {
+            echo "<option value=''>No Group Found</option>";
+        }
     }
     if($action == 'get_subjects') {
         $res = $conn->query("SELECT * FROM subjects WHERE group_id=$id");
-        while($r = $res->fetch_assoc()) { echo "<option value='".$r['id']."'>".$r['name']."</option>"; }
+        if($res->num_rows > 0){
+            echo "<option value=''>Select Subject</option>";
+            while($r = $res->fetch_assoc()) { echo "<option value='".$r['id']."'>".$r['name']."</option>"; }
+        } else {
+            echo "<option value=''>No Subject Found</option>";
+        }
     }
     if($action == 'get_exams') {
         $res = $conn->query("SELECT * FROM exams WHERE subject_id=$id");
-        while($r = $res->fetch_assoc()) { echo "<option value='".$r['id']."'>".$r['title']."</option>"; }
+        if($res->num_rows > 0){
+            echo "<option value=''>Select Exam</option>";
+            while($r = $res->fetch_assoc()) { echo "<option value='".$r['id']."'>".$r['title']."</option>"; }
+        } else {
+            echo "<option value=''>No Exam Found</option>";
+        }
     }
     exit;
 }
 
 // Insert Question Logic
-$msg = "";
 if(isset($_POST['submit_q'])) {
     $exam_id = $_POST['exam_id'];
     $q = $conn->real_escape_string($_POST['question']);
@@ -31,15 +47,49 @@ if(isset($_POST['submit_q'])) {
     $c = $conn->real_escape_string($_POST['opt_c']);
     $d = $conn->real_escape_string($_POST['opt_d']);
     $cor = $_POST['correct'];
-    
-    if($conn->query("INSERT INTO questions (exam_id, question, option_a, option_b, option_c, option_d, correct) VALUES ('$exam_id', '$q', '$a', '$b', '$c', '$d', '$cor')")) {
-        $msg = "<div class='alert alert-success alert-dismissible fade show fw-bold'><i class='fas fa-check-circle me-2'></i> Question Saved Successfully! Add Next... <button type='button' class='btn-close' data-bs-dismiss='alert'></button></div>";
-    }
-}
 
-// Get current question count for auto-numbering (Optional - needs selected exam_id via JS)
-$q_count = 1; 
+    if(!empty($exam_id) && !empty($q)) {
+        $sql = "INSERT INTO questions (exam_id, question, option_a, option_b, option_c, option_d, correct) 
+                VALUES ('$exam_id', '$q', '$a', '$b', '$c', '$d', '$cor')";
+        
+        if($conn->query($sql)) {
+            $_SESSION['msg'] = "Question Added Successfully!";
+            $_SESSION['msg_type'] = "success";
+        } else {
+            $_SESSION['msg'] = "Error: " . $conn->error;
+            $_SESSION['msg_type'] = "error";
+        }
+    } else {
+        $_SESSION['msg'] = "Exam ID or Question cannot be empty!";
+        $_SESSION['msg_type'] = "error";
+    }
+    // Redirect to prevent form resubmission
+    echo "<script>window.location='add_question.php';</script>";
+    exit;
+}
 ?>
+
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<?php if(isset($_SESSION['msg'])): ?>
+<script>
+    const Toast = Swal.mixin({
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 3000,
+        timerProgressBar: true,
+        didOpen: (toast) => {
+            toast.addEventListener('mouseenter', Swal.stopTimer)
+            toast.addEventListener('mouseleave', Swal.resumeTimer)
+        }
+    });
+
+    Toast.fire({
+        icon: '<?= $_SESSION['msg_type'] ?>',
+        title: '<?= $_SESSION['msg'] ?>'
+    });
+</script>
+<?php unset($_SESSION['msg']); endif; ?>
 
 <style>
     .mcq-creator-card { background: #fff; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.08); overflow: hidden; }
@@ -62,8 +112,6 @@ $q_count = 1;
 </style>
 
 <div class="container-fluid p-0">
-    <?= $msg ?>
-    
     <div class="row g-4">
         <div class="col-lg-8">
             <div class="mcq-creator-card">
@@ -108,7 +156,7 @@ $q_count = 1;
                 <hr class="my-0" style="opacity: 0.1;">
 
                 <div class="p-4">
-                    <h5 class="fw-bold mb-4 text-primary"><i class="fas fa-edit me-2"></i> 2. Create Question #<span id="qNum">1</span></h5>
+                    <h5 class="fw-bold mb-4 text-primary"><i class="fas fa-edit me-2"></i> 2. Create Question</h5>
                     
                     <form method="POST" id="mcqForm">
                         <input type="hidden" name="exam_id" id="hidden_exam_id">
@@ -169,7 +217,7 @@ $q_count = 1;
                 </div>
                 <div class="preview-body">
                     <div class="d-flex justify-content-between mb-3">
-                        <span class="badge bg-primary">Q <span id="previewQNum">1</span>/10</span>
+                        <span class="badge bg-primary">Q Preview</span>
                         <span class="text-muted"><i class="far fa-clock me-1"></i> 00:20</span>
                     </div>
                     
@@ -191,9 +239,29 @@ $q_count = 1;
 
 <script>
 // AJAX Loaders
-function loadGroups(classId) { /* Same as before */ if(!classId) return; document.getElementById('group_select').disabled = false; fetch(`add_question.php?ajax_action=get_groups&id=${classId}`).then(res => res.text()).then(data => document.getElementById('group_select').innerHTML = '<option value="">Select Group</option>' + data); }
-function loadSubjects(groupId) { /* Same as before */ if(!groupId) return; document.getElementById('subject_select').disabled = false; fetch(`add_question.php?ajax_action=get_subjects&id=${groupId}`).then(res => res.text()).then(data => document.getElementById('subject_select').innerHTML = '<option value="">Select Subject</option>' + data); }
-function loadExams(subId) { /* Same as before */ if(!subId) return; document.getElementById('exam_select').disabled = false; fetch(`add_question.php?ajax_action=get_exams&id=${subId}`).then(res => res.text()).then(data => document.getElementById('exam_select').innerHTML = '<option value="">Select Exam</option>' + data); }
+function loadGroups(classId) {
+    if(!classId) return;
+    document.getElementById('group_select').disabled = false;
+    fetch(`add_question.php?ajax_action=get_groups&id=${classId}`)
+    .then(res => res.text())
+    .then(data => document.getElementById('group_select').innerHTML = data);
+}
+
+function loadSubjects(groupId) {
+    if(!groupId) return;
+    document.getElementById('subject_select').disabled = false;
+    fetch(`add_question.php?ajax_action=get_subjects&id=${groupId}`)
+    .then(res => res.text())
+    .then(data => document.getElementById('subject_select').innerHTML = data);
+}
+
+function loadExams(subId) {
+    if(!subId) return;
+    document.getElementById('exam_select').disabled = false;
+    fetch(`add_question.php?ajax_action=get_exams&id=${subId}`)
+    .then(res => res.text())
+    .then(data => document.getElementById('exam_select').innerHTML = data);
+}
 
 // Lock Selection & Auto-Set Hidden ID
 let isLocked = false;
@@ -203,24 +271,27 @@ function toggleLock() {
     const selectionArea = document.getElementById('selectionArea');
     const lockBtn = document.getElementById('lockBtn');
 
-    if (examSelect.value === "") { alert("Please select an Exam/Chapter first!"); return; }
+    if (examSelect.value === "") { 
+        Swal.fire('Warning', 'Please select an Exam/Chapter first!', 'warning');
+        return; 
+    }
 
     isLocked = !isLocked;
     if (isLocked) {
         selectionArea.classList.add('selection-locked');
         lockBtn.innerHTML = '<i class="fas fa-unlock me-2"></i> Unlock';
-        hiddenId.value = examSelect.value; // Set hidden ID
+        lockBtn.classList.replace('btn-lock', 'btn-danger'); // Change style
+        hiddenId.value = examSelect.value;
         document.getElementById('qInput').focus();
     } else {
         selectionArea.classList.remove('selection-locked');
         lockBtn.innerHTML = '<i class="fas fa-lock me-2"></i> Lock Selection';
+        lockBtn.classList.replace('btn-danger', 'btn-lock'); // Revert style
         hiddenId.value = "";
     }
 }
 
-// Live Preview & Auto Numbering Update
-let questionCounter = 1; // In real app, fetch count from DB
-
+// Live Preview Update
 function updatePreview() {
     document.getElementById('previewQText').innerText = document.getElementById('qInput').value || "Your question will appear here...";
     document.getElementById('txtA').innerText = document.getElementById('optA').value || "Option A";
@@ -228,7 +299,6 @@ function updatePreview() {
     document.getElementById('txtC').innerText = document.getElementById('optC').value || "Option C";
     document.getElementById('txtD').innerText = document.getElementById('optD').value || "Option D";
 
-    // Highlight Correct Option in Preview
     const correct = document.getElementById('correctSelect').value;
     ['A', 'B', 'C', 'D'].forEach(opt => {
         document.getElementById(`prevOpt${opt}`).classList.remove('preview-correct');
@@ -242,8 +312,11 @@ function updatePreviewHeader() {
     document.getElementById('previewExamTitle').innerText = selectedText !== "Select Exam" ? selectedText : "Select Exam...";
 }
 
-// Auto Increment Q Number on Submit Success (Simulated here for UI)
-if (window.history.replaceState) { window.history.replaceState(null, null, window.location.href); } // Prevent resubmit
+// Check if locked previously (after submit) to keep session alive - Simple Logic
+window.onload = function() {
+    // Optional: You can implement logic here to re-select previous dropdowns if session storage is used.
+    // For now, it resets to keep clean state.
+};
 </script>
 
 <?php include 'includes/footer.php'; ?>
